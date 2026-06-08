@@ -1,9 +1,21 @@
-name: Update Lotto CSV
+name: Update Lottery CSVs
 
 on:
   schedule:
-    - cron: '0 21 * * *'
+    # ── Lotto — wt/czw/sob 22:00 PL ──
+    - cron: '30 21 * * 2,4,6'   # ~30–90 min po losowaniu (ten sam dzień UTC)
+    - cron: '30 5 * * 0,3,5'    # backup ~8 h później → UWAGA: następny dzień (śr/pt/niedz)
+    # ── Eurojackpot — wt/pt 20:00 PL ──
+    - cron: '30 19 * * 2,5'
+    - cron: '30 3 * * 3,6'      # backup → śr/sob
+    # ── Mini Lotto — codziennie 22:00 PL ──
+    - cron: '30 21 * * *'
+    - cron: '30 5 * * *'
   workflow_dispatch:
+    inputs:
+      game:
+        description: 'lotto / eurojackpot / mini_lotto / all'
+        default: 'all'
 
 permissions:
   contents: write
@@ -14,21 +26,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pobierz CSV
+      - name: Ustal, którą grę pobrać
+        id: pick
         run: |
-          curl -fSL \
-            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
-            -o lotto.csv \
-            "https://www.wynikilotto.net.pl/download/lotto.csv"
+          case "${{ github.event.schedule }}" in
+            "30 21 * * 2,4,6"|"30 5 * * 0,3,5") game="lotto" ;;
+            "30 19 * * 2,5"|"30 3 * * 3,6")     game="eurojackpot" ;;
+            "30 21 * * *"|"30 5 * * *")         game="mini_lotto" ;;
+            *) game="${{ github.event.inputs.game || 'all' }}" ;;
+          esac
+          echo "game=$game" >> "$GITHUB_OUTPUT"
+          echo "Wybrana gra: $game"
 
-      - name: Commit, jeśli plik się zmienił
+      - name: Pobierz i zwaliduj
+        env:
+          GAME: ${{ steps.pick.outputs.game }}
+        run: |
+          # ⚠️ Potwierdź dwa dolne adresy — zgaduję wzorzec po nazwach plików w repo
+          declare -A URL=(
+            [lotto]="https://www.wynikilotto.net.pl/download/lotto.csv"
+            [eurojackpot]="https://www.wynikilotto.net.pl/download/eurojackpot.csv"
+            [mini_lotto]="https://www.wynikilotto.net.pl/download/mini_lotto.csv"
+          )
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+
+          fetch() {
+            local name="$1" url="$2"
+            echo "::group::$name"
+            curl -fSL --remove-on-error -A "$UA" -o "$name.new" "$url" || { echo "::error::$name: błąd HTTP"; return 1; }
+            if [ ! -s "$name.new" ]; then echo "::error::$name: pusty"; rm -f "$name.new"; return 1; fi
+            local new old
+            new=$(wc -l < "$name.new")
+            old=$(wc -l < "$name.csv" 2>/dev/null || echo 0)
+            echo "$name: stary=$old, nowy=$new"
+            if [ "$new" -lt "$old" ]; then echo "::error::$name: mniej wierszy"; rm -f "$name.new"; return 1; fi
+            if head -c 100 "$name.new" | grep -qi "<html"; then echo "::error::$name: HTML zamiast CSV"; rm -f "$name.new"; return 1; fi
+            mv "$name.new" "$name.csv"
+            echo "::endgroup::"
+          }
+
+          if [ "$GAME" = "all" ]; then
+            for g in lotto eurojackpot mini_lotto; do fetch "$g" "${URL[$g]}" || echo "::warning::$g pominięty"; done
+          else
+            fetch "$GAME" "${URL[$GAME]}"
+          fi
+
+      - name: Commit zmienionych plików
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add lotto.csv
+          git add '*.csv'
           if git diff --staged --quiet; then
             echo "Brak zmian."
           else
-            git commit -m "Aktualizacja lotto.csv $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git commit -m "Aktualizacja CSV $(date -u +'%Y-%m-%d %H:%M UTC')"
             git push
           fi
