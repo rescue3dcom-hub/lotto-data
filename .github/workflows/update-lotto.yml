@@ -14,9 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pobierz CSV
+- name: Pobierz CSV
         run: |
-          curl -fsSL -o data/lotto.csv https://www.wynikilotto.net.pl/download/lotto.csv
+          curl -fSL \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+            -o lotto.csv \
+            "https://www.wynikilotto.net.pl/download/lotto.csv"
 
       - name: Commit, jeśli plik się zmienił
         run: |
