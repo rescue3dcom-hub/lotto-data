@@ -2,7 +2,7 @@ name: Update Lotto CSV
 
 on:
   schedule:
-    - cron: '0 21 * * *'   # 21:00 UTC = 23:00 PL (lato) / 22:00 (zima)
+    - cron: '0 21 * * *'
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-- name: Pobierz CSV
+      - name: Pobierz CSV
         run: |
           curl -fSL \
             -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
